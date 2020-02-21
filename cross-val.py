@@ -32,6 +32,19 @@ diagnos = {'AD': 0,'CN': 1}
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+use_cross = True
+cross_validation_folds = 4
+
+trials = np.zeros((len(diagnos),cross_validation_folds))
+for i in range(len(diagnos)):
+    x = list(range(cross_validation_folds))
+#     print(x)
+    random.shuffle(x)
+#     print(x)
+    trials[i]=x
+    
+    
+
 SUBJECT_INDEPENDENT = True
 print("SUBJECT_INDEPENDENT:",SUBJECT_INDEPENDENT)
 choice = 1 # 0==( 15t 1mm ) 1==(15t 2mm ) 2==( 3t 1mm ) 3==( 3t 2mm ) 
@@ -60,6 +73,8 @@ limit_training_number = not use_whole_data
 train_sub_per_class = 70
 train_img_per_class_sd = 70
 
+
+
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 # %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -82,75 +97,135 @@ for file in list_of_all_imgs:
 # print(by_diag)      
 if SUBJECT_INDEPENDENT:
     list_of_all_subs = set([i[:10] for i in list_of_all_imgs])
-
     total_subs = {k:list(set([img[:10] for img in v])) for k,v in total_imgs.items()}
     n_subj_total ={k:len(v) for k,v in total_subs.items()}
+    
     if limit_testing_number:
-        test_subs = {k:random.sample(v,test_sub_per_class) for k,v in total_subs.items() if k in diagnos.keys()}
+        if use_cross:
+            test_subs = {cross:{k:random.sample(v,test_sub_per_class) for k,v in total_subs.items() if k in diagnos.keys()} for cross in range(cross_validation_folds)}
+            n_subs_test = {cross:{k:len(v) for k,v in test_subs[cross].items()}for cross in range(cross_validation_folds)}
+
+        else:
+            test_subs = {k:random.sample(v,test_sub_per_class) for k,v in total_subs.items() if k in diagnos.keys()}
+            n_subs_test = {k:len(v) for k,v in test_subs.items()}
+
     else:
         validation_split = split_portion
-        test_subs = {k:random.sample(v,int(validation_split*len(v))) for k,v in total_subs.items()  if k in diagnos.keys()}
-    n_subs_test = {k:len(v) for k,v in test_subs.items()}
-    if use_all_copies_of_same_subject:
-        test_imgs = {k:[img for img in v if img[:10] in test_subs[k]] for k,v in total_imgs.items() if k in diagnos.keys()}
-    else:
-        new_test_imgs = {}
-        for dia,group in test_subs.items():
-            new_group = []
-            for sub in group:
-                sample = random.sample(by_diag[dia][sub],min(test_img_per_class_si,len(by_diag[dia][sub])))
-                new_group+=sample
-            new_test_imgs[dia] = new_group
-        test_imgs = new_test_imgs
-    
-    train_subs = {}
-    for k in diagnos.keys():
-        train_subs[k]=[]
-#     for k,v in total_subs.items():
-        for sub in total_subs[k]:
-            if sub not in test_subs[k]:
-                train_subs[k].append(sub)
-            if len(train_subs[k])==train_sub_per_class:
-                if limit_training_number:
-                    break
+        if use_cross:
+            test_subs = {cross:{k:random.sample(v,int(validation_split*len(v))) for k,v in total_subs.items()  if k in diagnos.keys()} for cross in range(cross_validation_folds)}
+            n_subs_test = {cross:{k:len(v) for k,v in test_subs[cross].items()}for cross in range(cross_validation_folds)}
 
-    n_subs_train = {k:len(v) for k,v in train_subs.items()}
+        else:
+            test_subs = {k:random.sample(v,int(validation_split*len(v))) for k,v in total_subs.items()  if k in diagnos.keys()}
+            n_subs_test = {k:len(v) for k,v in test_subs.items()}
+
     if use_all_copies_of_same_subject:
-        train_imgs = {k:[img for img in v if img[:10] in train_subs[k]] for k,v in total_imgs.items() if k in diagnos.keys()}
+        if use_cross:
+            test_imgs = {}
+            n_imgs_test= {}
+            for cross in range(cross_validation_folds):
+                test_imgs[cross] = {k:[img for img in v if img[:10] in test_subs[cross][k]] 
+                            for k,v in total_imgs.items() if k in diagnos.keys()}
+                n_imgs_test[cross] = {k:len(v) for k,v in test_imgs[cross].items()}
+
+        else:
+            test_imgs = {k:[img for img in v if img[:10] in test_subs[k]] for k,v in total_imgs.items() if k in diagnos.keys()}
+            n_imgs_test = {k:len(v) for k,v in test_imgs.items()}
+
+                     
+    else:
+        if use_cross:
+            test_imgs = {}
+            n_imgs_test= {}
+            for cross in range(cross_validation_folds):
+                test_imgs[cross] = {}
+                new_test_imgs ={}
+                for dia,group in test_subs[cross].items():
+                    new_group = []
+                    for sub in group:
+                        sample = random.sample(by_diag[dia][sub],min(test_img_per_class_si,len(by_diag[dia][sub])))
+                        new_group+=sample
+                    new_test_imgs[dia] = new_group
+                test_imgs[cross] = new_test_imgs
+                n_imgs_test= {k:len(v) for k,v in test_imgs[cross].items()}
+        else:
+            
+
+    train_subs = {}
+    for cross in range(cross_validation_folds):
+        train_subs[cross] = {}
+        for k in diagnos.keys():
+            train_subs[cross][k]=[]
+    #     for k,v in total_subs.items():
+            for sub in total_subs[k]:
+                if sub not in test_subs[cross][k]:
+                    train_subs[cross][k].append(sub)
+                if len(train_subs[cross][k])==train_sub_per_class:
+                    if limit_training_number:
+                        break
+
+    n_subs_train = {cross:{k:len(v) for k,v in train_subs[cross].items()} for cross in range(cross_validation_folds)}
+    train_imgs = {}
+    if use_all_copies_of_same_subject:
+        train_imgs = {cross:{k:[img for img in v if img[:10] in train_subs[cross][k]] for k,v in total_imgs.items() if k in diagnos.keys()} for cross in range(cross_validation_folds)}
     else:
         new_train_imgs = {}
-        for dia,group in train_subs.items():
-            new_group = []
-            for sub in group:
-                sample = random.sample(by_diag[dia][sub],min(train_img_per_class_si,len(by_diag[dia][sub])))
-                new_group+=sample
-            new_train_imgs[dia] = new_group
-        train_imgs = new_train_imgs
-    
-#     n_imgs_train = {k:len(v) for k,v in train_imgs.items()}
-    n_imgs_test = {k:len(v) for k,v in test_imgs.items()}
-    n_imgs_train = {k:len(v) for k,v in train_imgs.items()}
-    n_imgs_used = {k:len(train_imgs[k])+ len(test_imgs[k]) for k in  diagnos.keys() }
-    n_subs_used = {k:len(train_subs[k])+ len(test_subs[k]) for k in  diagnos.keys() }
-    
+        for cross in range(cross_validation_folds):
+            train_imgs[cross] = {}
+            for dia,group in train_subs[cross].items():
+                new_group = []
+                for sub in group:
+                    sample = random.sample(by_diag[dia][sub],min(train_img_per_class_si,len(by_diag[dia][sub])))
+                    new_group+=sample
+                new_train_imgs[dia] = new_group
+            train_imgs[cross] = new_train_imgs
+#     print(train_imgs)
+    n_imgs_train={}
+    n_imgs_used={}
+    n_subs_used={}
+    for cross in range(cross_validation_folds):
+        n_imgs_train[cross] = {k:len(v) for k,v in train_imgs[cross].items()} 
+        n_imgs_used[cross] = {k:len(train_imgs[cross][k])+ len(test_imgs[cross][k]) for k in  diagnos.keys() } 
+        n_subs_used[cross] = {k:len(train_subs[cross][k])+ len(test_subs[cross][k]) for k in  diagnos.keys() } 
+    if use_cross:
+                
+        print("\n")
+    #     print(f"Total Number of SUBJECTS of dataset {len(list_of_all_subs)}")
+    #     print(f"Total Number of IMAGES of dataset {len(list_of_all_imgs)}")
+        print("Number of SUBJECTS in each group of dataset\t", n_subj_total,"in TOTAL ",len(list_of_all_subs))
+        print("Number of IMAGES in each group of dataset\t", n_imgs_total,"in TOTAL ",len(list_of_all_imgs))
+        print("\n")
+    #     print(f"Total USED Number of SUBJECTS {sum(n_subs_used.values())}")
+    #     print(f"Total USED Number of IMAGES {sum(n_imgs_used.values())}")
+        print("Number of USED SUBJECTS in each group\t\t", n_subs_used,"in TOTAL in cross-folds",[sum(n_subs_used[cross].values()) for cross in range(cross_validation_folds)])
+        print("Number of USED IMAGES in each group \t\t", n_imgs_used,"in TOTAL ",               [sum(n_imgs_used[cross].values()) for cross in range(cross_validation_folds)])
+        print("\n")
+        print("Number of SUBJECTS in each group of TEST split\t",n_subs_test,"in TOTAL ",[sum(n_subs_test[cross].values())for cross in range(cross_validation_folds)])
+        print("Number of SUBJECTS in each group of TRAIN split\t", n_subs_train,"in TOTAL ",[sum(n_subs_train[cross].values())for cross in range(cross_validation_folds)])
+        print("\n")
 
-    print("\n")
-#     print(f"Total Number of SUBJECTS of dataset {len(list_of_all_subs)}")
-#     print(f"Total Number of IMAGES of dataset {len(list_of_all_imgs)}")
-    print("Number of SUBJECTS in each group of dataset\t", n_subj_total,"in TOTAL ",len(list_of_all_subs))
-    print("Number of IMAGES in each group of dataset\t", n_imgs_total,"in TOTAL ",len(list_of_all_imgs))
-    print("\n")
-#     print(f"Total USED Number of SUBJECTS {sum(n_subs_used.values())}")
-#     print(f"Total USED Number of IMAGES {sum(n_imgs_used.values())}")
-    print("Number of USED SUBJECTS in each group\t\t", n_subs_used,"in TOTAL ",sum(n_subs_used.values()))
-    print("Number of USED IMAGES in each group \t\t", n_imgs_used,"in TOTAL ",sum(n_imgs_used.values()))
-    print("\n")
-    print("Number of SUBJECTS in each group of TEST split\t",n_subs_test,"in TOTAL ",sum(n_subs_test.values()))
-    print("Number of SUBJECTS in each group of TRAIN split\t", n_subs_train,"in TOTAL ",sum(n_subs_train.values()))
-    print("\n")
+        print("Number of IMAGES in each group of TEST split\t",n_imgs_test,"in TOTAL ",[sum(n_imgs_test[cross].values())for cross in range(cross_validation_folds)])
+        print("Number of IMAGES in each group of TRAIN split\t", n_imgs_train,"in TOTAL ",[sum(n_imgs_train[cross].values())for cross in range(cross_validation_folds)])
 
-    print("Number of IMAGES in each group of TEST split\t",n_imgs_test,"in TOTAL ",sum(n_imgs_test.values()))
-    print("Number of IMAGES in each group of TRAIN split\t", n_imgs_train,"in TOTAL ",sum(n_imgs_train.values()))
+    else:
+        
+        print("\n")
+    #     print(f"Total Number of SUBJECTS of dataset {len(list_of_all_subs)}")
+    #     print(f"Total Number of IMAGES of dataset {len(list_of_all_imgs)}")
+        print("Number of SUBJECTS in each group of dataset\t", n_subj_total,"in TOTAL ",len(list_of_all_subs))
+        print("Number of IMAGES in each group of dataset\t", n_imgs_total,"in TOTAL ",len(list_of_all_imgs))
+        print("\n")
+    #     print(f"Total USED Number of SUBJECTS {sum(n_subs_used.values())}")
+    #     print(f"Total USED Number of IMAGES {sum(n_imgs_used.values())}")
+        print("Number of USED SUBJECTS in each group\t\t", n_subs_used,"in TOTAL ",sum(n_subs_used.values()))
+        print("Number of USED IMAGES in each group \t\t", n_imgs_used,"in TOTAL ",sum(n_imgs_used.values()))
+        print("\n")
+        print("Number of SUBJECTS in each group of TEST split\t",n_subs_test,"in TOTAL ",sum(n_subs_test.values()))
+        print("Number of SUBJECTS in each group of TRAIN split\t", n_subs_train,"in TOTAL ",sum(n_subs_train.values()))
+        print("\n")
+
+        print("Number of IMAGES in each group of TEST split\t",n_imgs_test,"in TOTAL ",sum(n_imgs_test.values()))
+        print("Number of IMAGES in each group of TRAIN split\t", n_imgs_train,"in TOTAL ",sum(n_imgs_train.values()))
 else:
 #     test_imgs = {k:random.sample(v,test_sub_per_class) for k,v in total_imgs.items() if k in diagnos.keys()}
     if limit_testing_number:
